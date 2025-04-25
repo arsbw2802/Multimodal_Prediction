@@ -2,7 +2,7 @@ import numpy as np
 from torch.utils.data import Dataset
 from .sliding_window import *
 from joblib import load
-import copy
+import torch
 
 class MyDataset(Dataset):
     def __init__(
@@ -47,7 +47,7 @@ class MyDataset(Dataset):
         return self.X.shape[0]
 
     def __getitem__(self, i):
-        data_x = self.X[i]
+        data_x = torch.tensor(self.X[i], dtype=torch.float32)
         data_y = self.y[i]
 
         return (data_x, data_y)

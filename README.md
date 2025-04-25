@@ -93,7 +93,7 @@ This will generate the .joblib and .npy files necessary for data loading.
 Run the main script for model training and evaluation.
 
 ```
-python main.py --imu_joblib_file="./all_data/MARBLE_IMU.joblib" --embeddings_dir="./all_data/" --sentence_encoder="all-MiniLM-L12-v2" --batch_size=250
+python main.py --imu_joblib_file="./all_data/MARBLE_IMU.joblib" --embeddings_dir="./all_data/" --sentence_encoder="all-MiniLM-L12-v2" --batch_size=250 --train --evaluate="fusion"
 ```
 
 This will load the data and train the models.
