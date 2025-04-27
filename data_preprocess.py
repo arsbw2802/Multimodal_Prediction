@@ -4,194 +4,200 @@ from pathlib import Path
 from tqdm import tqdm
 import argparse
 
-def parse_arguments():
-    parser = argparse.ArgumentParser(description='arguments for MARBLE dataset preprocessing')
-    parser.add_argument("--marble_dataset_path", type=str, default="./dataset/MARBLE/dataset", help="Location of the MARBLE dataset")
-    parser.add_argument('--sampling_rate', type=int, default="100", help="Sampling rate for the data. Is used to downsample to the required rate")
 
-    args = parser.parse_args()
+# Root of dataset
+DATASET_DIRECTORY = Path("dataset")
 
-    return args
+def create_subject_dataframe(
+    instance_dir: str, subject_id: int, sensor_data: pd.DataFrame
+) -> pd.DataFrame:
+    base_path = f"{instance_dir}/subject-{subject_id}"
 
-# List of all possible environmental sensors (17 total)
-ALL_ENV_SENSORS = [
-    "R1", "R2", "R5", "R6", "R7",
-    "E1", "E2",
-    "P1", "P2", "P3", "P4", "P5", "P6", "P7", "P8", "P9"
-]
+    # Add accelerometer to dataframe
+    accelerometer_data = pd.read_csv(f"{base_path}/accelerometer.csv")
+    accelerometer_data.columns = [
+        f"accel_{j}" if j != "ts" else j for j in accelerometer_data.columns.values
+    ]
+    accelerometer_data = accelerometer_data.pivot(index="ts", columns=[])
+    accelerometer_data = accelerometer_data[
+        ~accelerometer_data.index.duplicated(keep="first")
+    ]
+    sensor_data = sensor_data.merge(accelerometer_data, how="outer", on="ts")
 
-def generate_sensor_summary(row):
-    context_map = {
-        "R1": "using pantry", "R2": "using cutlery drawer", "R5": "using pots drawer",
-        "R6": "using medicines cabinet", "R7": "using fridge",
-        "E1": "using stove plug", "E2": "using television plug",
-        "P1": "on dining room chair", "P2": "on office chair", "P3": "on living room couch",
-        "P4": "on dining room chair", "P5": "on dining room chair", "P6": "on dining room chair",
-        "P7": "on living room couch", "P8": "on living room couch", "P9": "on living room couch"
+    # Add barometer to dataframe
+    barometer_data = pd.read_csv(f"{base_path}/barometer.csv")
+    barometer_data = barometer_data.pivot(index="ts", columns=[])
+    barometer_data = barometer_data[~barometer_data.index.duplicated(keep="first")]
+    sensor_data = sensor_data.merge(barometer_data, how="outer", on="ts")
+
+    # Add gyroscope to dataframe
+    gyroscope_data = pd.read_csv(f"{base_path}/gyroscope.csv")
+    gyroscope_data.columns = [
+        f"gyro_{j}" if j != "ts" else j for j in gyroscope_data.columns.values
+    ]
+    gyroscope_data = gyroscope_data.pivot(index="ts", columns=[])
+    gyroscope_data = gyroscope_data[~gyroscope_data.index.duplicated(keep="first")]
+    sensor_data = sensor_data.merge(gyroscope_data, how="outer", on="ts")
+
+    # Add magnetometer to dataframe
+    magnetometer_data = pd.read_csv(f"{base_path}/magnetometer.csv")
+    magnetometer_data.columns = [
+        f"mag_{j}" if j != "ts" else j for j in magnetometer_data.columns.values
+    ]
+    magnetometer_data = magnetometer_data.pivot(index="ts", columns=[])
+    magnetometer_data = magnetometer_data[
+        ~magnetometer_data.index.duplicated(keep="first")
+    ]
+    sensor_data = sensor_data.merge(magnetometer_data, how="outer", on="ts")
+
+    # Add locations to dataframe
+    location_data = pd.read_csv(f"{base_path}/locations.csv")
+    location_data = location_data.melt(
+        id_vars="location", value_vars=["ts_start", "ts_end"], value_name="ts"
+    ).drop("variable", axis=1)
+    sensor_data = sensor_data.merge(location_data, how="outer", on="ts")
+
+    # Add labels to dataframe
+    labels_data = pd.read_csv(f"{base_path}/labels.csv")
+    labels_data = labels_data.melt(
+        id_vars="act", value_vars=["ts_start", "ts_end"], value_name="ts"
+    ).drop("variable", axis=1)
+    sensor_data = sensor_data.merge(labels_data, how="outer", on="ts")
+
+    # Add smartphone data to dataframe
+    try:
+        smartphone_data = pd.read_csv(f"{base_path}/smartphone.csv")
+        smartphone_data = smartphone_data.pivot(index="ts", columns="event_id")
+        smartphone_data.columns = [j for (_, j) in smartphone_data.columns.values]
+        sensor_data = sensor_data.merge(smartphone_data, how="outer", on="ts")
+    except pd.errors.EmptyDataError as e:
+        ...
+
+    # ffill works as events should keep on occurring until state changes
+    sensor_data.ffill(inplace=True)
+
+    # For state objects, fill in "OFF" as default state
+    fill_dict = {
+        col: "OFF"
+        for col in sensor_data
+        if col
+        not in [
+            "accel_x",
+            "accel_y",
+            "accel_z",
+            "value",
+            "gyro_x",
+            "gyro_y",
+            "gyro_z",
+            "mag_x",
+            "mag_y",
+            "mag_z",
+            "location",
+            "act",
+            "ts",
+        ]
     }
 
-    summary_parts = []
+    sensor_data.fillna(fill_dict, inplace=True)
 
-    for sensor_id in ALL_ENV_SENSORS:
-        col = f'env_{sensor_id}'
-        if col not in row or row[col] == 'N/A' or row[col] == "":
-            continue
-        context = context_map.get(sensor_id)
-        if not context:
-            continue
-        value = row[col]
-        summary_parts.append(f"Motion sensor {context} with value {value}.")
+    # Finally, do a bfill to take care of numerical values
+    sensor_data.bfill(inplace=True)
 
-    return ' '.join(summary_parts)
+    return sensor_data
 
 
-def process_all_instances(args):
-    dataset_path = Path(args.marble_dataset_path)
-    if not dataset_path.exists():
-        raise FileNotFoundError(f"Dataset path does not exist: {dataset_path}")
-    all_dataframes = []
+def create_instance_dataframe(scenario_dir: str, instance_id: str) -> pd.DataFrame:
+    base_dir = f"{scenario_dir}/{instance_id}"
 
-    scenario_dirs = [d for d in dataset_path.iterdir() if d.is_dir()]
-    for scenario_dir in tqdm(scenario_dirs, desc="Processing scenarios"):
-        if not scenario_dir.is_dir():
-            continue
-        scenario_id = scenario_dir.name
+    # Create sensor_data
+    sensor_data = pd.read_csv(f"{base_dir}/environmental.csv")
+    sensor_ids = sensor_data["sensor_id"].unique()
 
-        for instance_dir in scenario_dir.iterdir():
-            if not instance_dir.is_dir():
-                continue
-            instance_id = instance_dir.name
-            env_path = instance_dir / "environmental.csv"
-            env_df = pd.read_csv(env_path) if env_path.exists() else pd.DataFrame()
+    dfs = []
 
-            for subject_dir in instance_dir.iterdir():
-                if not subject_dir.is_dir():
-                    continue
-                subject_id = subject_dir.name
+    # Create and join frames based on subject id
+    subject_ids = sensor_data["subject_id"].unique()
+    for id in subject_ids:
+        subject_frame = sensor_data[sensor_data["subject_id"] == id].drop(
+            "subject_id", axis=1
+        )
+        subject_frame = subject_frame.pivot(index="ts", columns="sensor_id")
+        subject_frame.columns = [j for (_, j) in subject_frame.columns.values]
 
-                # Get min/max timestamp across all available files
-                ts_min, ts_max = float("inf"), 0
+        subject_frame = create_subject_dataframe(base_dir, int(id), subject_frame)
+        subject_frame.insert(1, "subject_id", id)
+        subject_frame.set_index(["ts", "subject_id"])
 
-                def update_bounds(file_path):
-                    nonlocal ts_min, ts_max
-                    if file_path.exists() and file_path.stat().st_size > 0:
-                        try:
-                            df = pd.read_csv(file_path)
-                            if df.empty or df.shape[1] == 0:
-                                return  # skip empty or header-less CSV
-                            if 'ts' in df.columns:
-                                ts_min = min(ts_min, df['ts'].min())
-                                ts_max = max(ts_max, df['ts'].max())
-                            elif 'ts_start' in df.columns:
-                                ts_min = min(ts_min, df['ts_start'].min())
-                                ts_max = max(ts_max, df['ts_end'].max())
-                        except pd.errors.EmptyDataError:
-                            print(f"Skipped empty file: {file_path}")
-                            return  # skip completely empty files
-                        
-                # Update time bounds
-                files = ['accelerometer.csv', 'magnetometer.csv', 'gyroscope.csv', 'barometer.csv',
-                         'locations.csv', 'labels.csv']
-                for file in files:
-                    update_bounds(subject_dir / file)
-                if not np.isfinite(ts_min) or not np.isfinite(ts_max):
-                    continue
+        # Reinsert all columns not present in this dataframe
+        for sensor_id in sensor_ids:
+            if sensor_id not in subject_frame.columns:
+                subject_frame[sensor_id] = np.nan
 
-                # Create master timeline
-                timeline = pd.DataFrame({'ts': np.arange(ts_min, ts_max + 1, args.sampling_rate)})
+        dfs.append(subject_frame)
 
-                # Load continuous sensor data
-                for sensor in ['accelerometer', 'magnetometer', 'gyroscope', 'barometer']:
-                    f = subject_dir / f"{sensor}.csv"
-                    if f.exists():
-                        df = pd.read_csv(f).dropna()
-                        df['ts'] = df['ts'].astype(np.int64)
-                        df = df.groupby('ts').mean().reset_index()
-                        df_interp = df.set_index('ts').reindex(timeline['ts'], method='nearest').reset_index()
-                        df_interp = df_interp.drop(columns='ts').add_prefix(f'{sensor}_')
-                        timeline = pd.concat([timeline, df_interp], axis=1)
+    # Concat instance dataframes
+    instance_df = pd.concat(dfs)
+    instance_df.insert(0, "instance", instance_id)
 
-                # Load discrete interval-based data
-                for file in ['labels.csv', 'locations.csv']:
-                    f = subject_dir / file
-                    col = file.replace('.csv', '')
-                    timeline[col] = 'UNKNOWN'
-                    if f.exists():
-                        df = pd.read_csv(f)
-                        if 'ts_start' in df.columns:
-                            for _, row in df.iterrows():
-                                timeline.loc[
-                                    (timeline['ts'] >= row['ts_start']) & (timeline['ts'] <= row['ts_end']),
-                                    col
-                                ] = row.iloc[2]
-                        else:
-                            for _, row in df.iterrows():
-                                idx = timeline['ts'].sub(row['ts']).abs().idxmin()
-                                timeline.at[idx, col] = f"{row.iloc[0]}_{row.iloc[1]}"
-
-                # Identify all sensors used in this instance's environmental.csv
-                scenario_env_sensors = set(env_df['sensor_id'].unique()) if not env_df.empty else set()
-
-                # Set OFF or N/A appropriately
-                for sensor_id in ALL_ENV_SENSORS:
-                    col_name = f'env_{sensor_id}'
-                    if sensor_id in scenario_env_sensors:
-                        timeline[col_name] = 'OFF'
-                    else:
-                        timeline[col_name] = 'N/A'
-
-                # Filter environmental data by this subject
-                subject_env = env_df[env_df['subject_id'].astype(str) == str(subject_id)]
-
-                if not subject_env.empty:
-                    subject_env['ts'] = subject_env['ts'].astype(np.int64)
-
-                    for sensor_id in subject_env['sensor_id'].unique():
-                        sensor_df = subject_env[subject_env['sensor_id'] == sensor_id].sort_values('ts').reset_index(drop=True)
-                        col_name = f'env_{sensor_id}'
-
-                        i = 0
-                        while i < len(sensor_df):
-                            row = sensor_df.iloc[i]
-                            if row['sensor_status'] == 'ON':
-                                ts_on = row['ts']
-                                # Look for corresponding OFF event
-                                ts_off = timeline['ts'].max()
-                                for j in range(i+1, len(sensor_df)):
-                                    if sensor_df.iloc[j]['sensor_status'] == 'OFF':
-                                        ts_off = sensor_df.iloc[j]['ts']
-                                        break
-                                # Set ON in the timeline between ts_on and ts_off
-                                timeline.loc[(timeline['ts'] >= ts_on) & (timeline['ts'] <= ts_off), col_name] = 'ON'
-                                i = j + 1  # Continue after OFF
-                            else:
-                                i += 1
-
-                # Add metadata
-                timeline['scenario_id'] = scenario_id
-                timeline['instance_id'] = instance_id
-                timeline['subject_id'] = subject_id
-                timeline['sensor_status_summary'] = timeline.apply(generate_sensor_summary, axis=1)
-                all_dataframes.append(timeline)
-
-    # Combine all into one DataFrame
-    if all_dataframes:
-        result_df = pd.concat(all_dataframes, ignore_index=True)
-    else:
-        result_df = pd.DataFrame()
-
-    # Remove rows with 'TRANSITION' or 'UNKNOWN' label
-    result_df = result_df[result_df['labels'] != "TRANSITION"]
-    result_df = result_df[result_df['labels'] != "UNKNOWN"]
-    return result_df
+    return instance_df
 
 
+def create_scenario_dataframe(root_dir: str, scenario_id: str) -> pd.DataFrame:
+    base_path = Path(f"{root_dir}/{scenario_id}")
+    instance_ids = [d.name for d in base_path.iterdir() if d.is_dir()]
 
+    dfs: list[pd.DataFrame] = []
+    columns = set()
+    for id in instance_ids:
+        # Create instance dataframe
+        instance_dataframe = create_instance_dataframe(base_path, id)
+
+        # Store column names
+        columns.update(instance_dataframe.columns)
+
+        dfs.append(instance_dataframe)
+
+    # Ensure all dataframes have all columns
+    for column in columns:
+        for df in dfs:
+            if column not in df.columns:
+                df[column] = np.nan
+
+    # Concat scenario dataframes
+    scenario_df = pd.concat(dfs)
+    scenario_df.insert(0, "scenario", scenario_id)
+
+    return scenario_df
+
+
+def combine_datasets(dataset_root: Path):
+    scenarios = [d.name for d in dataset_root.iterdir() if d.is_dir()]
+
+    dfs: list[pd.DataFrame] = []
+    columns = set()
+    for id in scenarios:
+        # Create scenarios dataframe
+        scenarios_dataframe = create_scenario_dataframe(dataset_root, id)
+
+        # Store column names
+        columns.update(scenarios_dataframe.columns)
+
+        dfs.append(scenarios_dataframe)
+
+    # Ensure all dataframes have all columns
+    for column in columns:
+        for df in dfs:
+            if column not in df.columns:
+                df[column] = np.nan
+
+    # Concat dataset dataframes
+    dataset = pd.concat(dfs)
+    return dataset
 
 if __name__ == '__main__':
-    args = parse_arguments()
-    print(args)
-    df = process_all_instances(args)
+    # Root of dataset
+    DATASET_DIRECTORY = Path("dataset")
+    df = combine_datasets(DATASET_DIRECTORY)
 
     output_dir = Path("all_data")
     output_dir.mkdir(parents=True, exist_ok=True)
