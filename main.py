@@ -8,6 +8,11 @@ from supervised_imu.train_and_eval import (
     train_supervised_imu,
     get_supervised_imu_predicted_probabilities,
 )
+from TDOST.train_eval import (
+    setup_tdost,
+    train_tdost,
+    get_tdost_predicted_probabilities,
+)
 from sklearn.metrics import (
     accuracy_score,
     f1_score,
@@ -34,27 +39,42 @@ def parse_arguments():
 
 def app(args):
     classifier, net, device, optimizer, exp_config = setup_supervised_imu(args)
+    model, device, optimizer, scheduler = setup_tdost(args)
 
     if args.train:
         imu_trainloader, imu_valloader, imu_testloader = get_supervised_imu_data_loaders(args)
         train_supervised_imu(imu_trainloader, imu_valloader, net, device, optimizer, exp_config)
 
         # add tdost training here
+        tdost_trainloader, tdost_valloader, tdost_testloader = get_tdost_data_loaders(args)
+        # train_tdost(tdost_trainloader, tdost_valloader, net, device,
+        # optimizer, exp_config)
+        best_model = train_tdost(model, tdost_trainloader, tdost_valloader, optimizer, scheduler, device, args)
+        # save the model    
+        # torch.save(net.state_dict(), os.path.join(args.model_save_path, "tdost_model.pth"))
+        # print("TDOST model saved to", os.path.join(args.model_save_path, "tdost_model.pth"))
+        # save the classifier
+        torch.save(classifier.state_dict(), os.path.join(args.model_save_path, "classifier_model.pth"))
+        print("Classifier model saved to", os.path.join(args.model_save_path, "classifier_model.pth"))
     
     if args.evaluate == "supervised_imu":
         _, _, imu_testloader = get_supervised_imu_data_loaders(args)
         imu_pred_probs, imu_gt_labels = get_supervised_imu_predicted_probabilities(net, device, args.model_save_path, imu_testloader)
         evaluate_predictions(np.array(imu_gt_labels), np.array(imu_pred_probs))
     elif args.evaluate == "tdost":
-        raise NotImplementedError("Function get_tdost_predicted_probabilities needs to be implemented.")
-        # tdost_pred_probs, tdost_gt_labels = get_tdsot_predicted_probabilities(...)
-        # evaluate_predictions(np.array(tdost_gt_labels), np.array(tdost_pred_probs))
+        # raise NotImplementedError("Function get_tdost_predicted_probabilities
+        # needs to be implemented.")
+        _, _, tdost_testloader = get_tdost_data_loaders(args)
+        # tdost_pred_probs, tdost_gt_labels =
+        # get_tdsot_predicted_probabilities(...)
+        tdost_pred_probs, tdost_gt_labels = get_tdost_predicted_probabilities(best_model, device, tdost_testloader, args)
+        evaluate_predictions(np.array(tdost_gt_labels), np.array(tdost_pred_probs))
     elif args.evaluate == "fused":
-        raise NotImplementedError("Function get_tdost_predicted_probabilities needs to be implemented.")
-        # imu_pred_probs, imu_gt_labels = get_supervised_imu_predicted_probabilities(net, device, model_save_path, imu_testloader)
-        # tdost_pred_probs, tdost_gt_labels = get_tdsot_predicted_probabilities(...)
-        # fused_probs, fused_gt_labels =  late_fusion(imu_gt_labels, tdost_gt_labels, imu_pred_probs, tdost_pred_probs)
-        # evaluate_predictions(fused_gt_labels, fused_probs)
+        # raise NotImplementedError("Function get_tdost_predicted_probabilities needs to be implemented.")
+        imu_pred_probs, imu_gt_labels = get_supervised_imu_predicted_probabilities(net, device, args.model_save_path, imu_testloader)
+        tdost_pred_probs, tdost_gt_labels = get_tdost_predicted_probabilities(...)
+        fused_probs, fused_gt_labels =  late_fusion(imu_gt_labels, tdost_gt_labels, imu_pred_probs, tdost_pred_probs)
+        evaluate_predictions(fused_gt_labels, fused_probs)
 
 
 def late_fusion(m1_gt, m2_gt, m1_pred_probs, m2_pred_probs):
