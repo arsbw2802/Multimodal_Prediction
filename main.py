@@ -32,6 +32,22 @@ def parse_arguments():
     parser.add_argument("--model_save_path", type=str, default="./models/", help="Directory where the models should be saved.")
     parser.add_argument('--train', action='store_true', help='Train both supervised IMU and TDOST models')
     parser.add_argument('--evaluate', type=str, default="supervised_imu", help="evaluate supervised_imu, tdost, or fusion") # change default to fusion
+    parser.add_argument('--random_seed', '-rs', type=int, default=42, help="Seed for reproducibility")
+    parser.add_argument("--input_size", type=int, default=768, help="Dimensionality of your input embeddings (e.g. 768 for BERT-like features)")
+    parser.add_argument("--learning_rate",        type=float, default=1e-3,
+                   help="Optimizer learning rate")
+    parser.add_argument("--weight_decay",         type=float, default=1e-5,
+                   help="Optimizer weight decay")
+    parser.add_argument("--lr_step_size",         type=int, default=10,
+                   help="StepLR step size")
+    parser.add_argument("--lr_gamma",             type=float, default=0.8,
+                   help="StepLR gamma (decay factor)")
+    parser.add_argument("--num_epochs",           type=int, default=10,
+                   help="Number of training epochs")
+    parser.add_argument("--kernel_size",           type=int, default=3, help="Convolutional kernel size (will be used as the `kernel_size` argument in your Conv layers)")
+    parser.add_argument('--padding', type=int, default=1,
+                        help='The padding size for the conv layers')
+    parser.add_argument('--num_classes', type=int, default= 13)
     args = parser.parse_args()
 
     return args
@@ -72,7 +88,7 @@ def app(args):
     elif args.evaluate == "fused":
         # raise NotImplementedError("Function get_tdost_predicted_probabilities needs to be implemented.")
         imu_pred_probs, imu_gt_labels = get_supervised_imu_predicted_probabilities(net, device, args.model_save_path, imu_testloader)
-        tdost_pred_probs, tdost_gt_labels = get_tdost_predicted_probabilities(...)
+        tdost_pred_probs, tdost_gt_labels = get_tdost_predicted_probabilities(best_model, device, tdost_testloader, args)
         fused_probs, fused_gt_labels =  late_fusion(imu_gt_labels, tdost_gt_labels, imu_pred_probs, tdost_pred_probs)
         evaluate_predictions(fused_gt_labels, fused_probs)
 

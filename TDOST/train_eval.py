@@ -5,8 +5,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import StepLR
-from utils import set_all_seeds
-from model import AutoEncoder   
+from .utils import *
+from .model import Classifier   
 
 
 """
@@ -42,7 +42,7 @@ def setup_tdost(args):
     device = torch.device(f"cuda:{args.gpu_device}" if torch.cuda.is_available() else "cpu")
 
     # model
-    model = AutoEncoder(args) \
+    model = Classifier(args) \
         .to(device)
 
     # optimizer + scheduler
@@ -73,12 +73,15 @@ def train_tdost(model, trainloader, valloader, optimizer, scheduler, device, arg
             X, y = X.to(device), y.to(device)
             optimizer.zero_grad()
             logits = model(X)
-            loss = criterion(logits, y)
+            loss   = criterion(logits, y)
             loss.backward()
             optimizer.step()
+
             running_loss += loss.item() * X.size(0)
+            n_samples   += X.size(0)
+
         scheduler.step()
-        train_loss = running_loss / len(trainloader.dataset)
+        train_loss = running_loss / n_samples
 
         # --- validation ---
         model.eval()
