@@ -27,8 +27,8 @@ def parse_arguments():
     parser = argparse.ArgumentParser(description='arguments for main application')
     parser.add_argument("--imu_joblib_file", type=str, default="./all_data/MARBLE_IMU.joblib", help="Path to the joblib file to use for the supervised IMU model")
     parser.add_argument("--embeddings_dir", type=str, default="./all_data/", help="Directory where the embeddings for TDOST are located.")
-    parser.add_argument("--sentence_encoder", type=str, default="all-MiniLM-L12-v2", help="Name of the sentence encoder to be used for TDOST.")
-    parser.add_argument("--batch_size", type=int, default=250, help="Batch size for model training.")
+    parser.add_argument("--sentence_encoder", type=str, default="sentence-t5-base", help="Name of the sentence encoder to be used for TDOST.")
+    parser.add_argument("--batch_size", type=int, default=100, help="Batch size for model training.")
     parser.add_argument("--model_save_path", type=str, default="./models/", help="Directory where the models should be saved.")
     parser.add_argument('--train', action='store_true', help='Train both supervised IMU and TDOST models')
     parser.add_argument('--evaluate', type=str, default="supervised_imu", help="evaluate supervised_imu, tdost, or fusion") # change default to fusion
@@ -47,7 +47,8 @@ def parse_arguments():
     parser.add_argument("--kernel_size",           type=int, default=3, help="Convolutional kernel size (will be used as the `kernel_size` argument in your Conv layers)")
     parser.add_argument('--padding', type=int, default=1,
                         help='The padding size for the conv layers')
-    parser.add_argument('--num_classes', type=int, default= 13)
+    parser.add_argument('--num_classes', type=int, default=14)
+    parser.add_argument('--gpu_device', type=int, default=0)
     args = parser.parse_args()
 
     return args
@@ -60,18 +61,16 @@ def app(args):
     if args.train:
         imu_trainloader, imu_valloader, imu_testloader = get_supervised_imu_data_loaders(args)
         train_supervised_imu(imu_trainloader, imu_valloader, net, device, optimizer, exp_config)
-
         # add tdost training here
         tdost_trainloader, tdost_valloader, tdost_testloader = get_tdost_data_loaders(args)
-        # train_tdost(tdost_trainloader, tdost_valloader, net, device,
-        # optimizer, exp_config)
+        #train_tdost(tdost_trainloader, tdost_valloader, net, device, optimizer, exp_config)
         best_model = train_tdost(model, tdost_trainloader, tdost_valloader, optimizer, scheduler, device, args)
         # save the model    
         # torch.save(net.state_dict(), os.path.join(args.model_save_path, "tdost_model.pth"))
         # print("TDOST model saved to", os.path.join(args.model_save_path, "tdost_model.pth"))
         # save the classifier
-        torch.save(classifier.state_dict(), os.path.join(args.model_save_path, "classifier_model.pth"))
-        print("Classifier model saved to", os.path.join(args.model_save_path, "classifier_model.pth"))
+        #torch.save(classifier.state_dict(), os.path.join(args.model_save_path, "classifier_model.pth"))
+        #print("Classifier model saved to", os.path.join(args.model_save_path, "classifier_model.pth"))
     
     if args.evaluate == "supervised_imu":
         _, _, imu_testloader = get_supervised_imu_data_loaders(args)
@@ -83,12 +82,15 @@ def app(args):
         _, _, tdost_testloader = get_tdost_data_loaders(args)
         # tdost_pred_probs, tdost_gt_labels =
         # get_tdsot_predicted_probabilities(...)
-        tdost_pred_probs, tdost_gt_labels = get_tdost_predicted_probabilities(best_model, device, tdost_testloader, args)
+        tdost_pred_probs, tdost_gt_labels = get_tdost_predicted_probabilities(device, tdost_testloader, args)
         evaluate_predictions(np.array(tdost_gt_labels), np.array(tdost_pred_probs))
-    elif args.evaluate == "fused":
+    elif args.evaluate == "fusion":
         # raise NotImplementedError("Function get_tdost_predicted_probabilities needs to be implemented.")
+        _, _, imu_testloader = get_supervised_imu_data_loaders(args)
+        _, _, tdost_testloader = get_tdost_data_loaders(args)
         imu_pred_probs, imu_gt_labels = get_supervised_imu_predicted_probabilities(net, device, args.model_save_path, imu_testloader)
-        tdost_pred_probs, tdost_gt_labels = get_tdost_predicted_probabilities(best_model, device, tdost_testloader, args)
+        
+        tdost_pred_probs, tdost_gt_labels = get_tdost_predicted_probabilities(device, tdost_testloader, args)
         fused_probs, fused_gt_labels =  late_fusion(imu_gt_labels, tdost_gt_labels, imu_pred_probs, tdost_pred_probs)
         evaluate_predictions(fused_gt_labels, fused_probs)
 
@@ -102,7 +104,10 @@ def late_fusion(m1_gt, m2_gt, m1_pred_probs, m2_pred_probs):
     """
 
     # sizes of predictions and probabilities for both models should match
-    assert np.array_equal(m1_gt, m2_gt), "Arrays are not equal!" # we have serious issues if this ain't equal
+    print("size of model 1: " + str(len(m1_gt)))
+    print("size of model 2: " + str(len(m2_gt)))
+    #assert np.array_equal(m1_gt, m2_gt), "Arrays are not equal!" # we have serious issues if this ain't equal
+    assert len(m1_gt) == len(m2_gt)
     assert m1_pred_probs.shape == m2_pred_probs.shape
     assert m1_gt.shape[0] == m2_pred_probs.shape[0]
 

@@ -45,11 +45,15 @@ class Convolutional1DEncoder(nn.Module):
 
     def forward(self, inputs):
         # Tranposing since the Conv1D requires
+        batch_size, window_size, context_size, embed_dim = inputs.shape
+
+        # Merge sliding window and context size into one dimension
+        inputs = inputs.view(batch_size, window_size * context_size, embed_dim) 
         inputs = inputs.permute(0, 2, 1)
+        #inputs = inputs.float()
         encoder = self.encoder(inputs)
         encoder = encoder.permute(0, 2, 1)
        
-
         return encoder
 
 
@@ -100,7 +104,7 @@ class Classifier(nn.Module):
         
         encoder = self.encoder(inputs)
         softmax = self.softmax(encoder[:,-1,:])
-        
+        #softmax = softmax.float()
       
         return softmax
 

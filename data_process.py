@@ -15,8 +15,8 @@ def parse_arguments():
     parser.add_argument("--synced_marble_data_path", type=str, default="./all_data/synced_marble_data.csv", help="Location of the synced MARBLE dataset")
     parser.add_argument('--save_path', type=str, default="./all_data", help="Location to save processed data")
     parser.add_argument('--context_length', type=int, default=12, help="Maximum length of context for TDOST")
-    parser.add_argument('--embedding_dimension', type=int, default=384, help="Embedding dimension for TDOST")
-    parser.add_argument('--sentence_encoder', type=str, default='all-MiniLM-L12-v2', help="Name of sentence encoder to use for TDOST")
+    parser.add_argument('--embedding_dimension', type=int, default=768, help="Embedding dimension for TDOST")
+    parser.add_argument('--sentence_encoder', type=str, default='sentence-t5-base', help="Name of sentence encoder to use for TDOST")
     parser.add_argument('--log', action='store_true', help='Logging for debugging purposes')
 
     args = parser.parse_args()

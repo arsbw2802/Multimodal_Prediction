@@ -61,18 +61,22 @@ def setup_tdost(args):
 
 
 def train_tdost(model, trainloader, valloader, optimizer, scheduler, device, args):
+    print("training tdost")
     criterion = nn.CrossEntropyLoss()
     best_wts = copy.deepcopy(model.state_dict())
     best_val_acc = 0.0
 
     for epoch in range(1, args.num_epochs + 1):
+        print("epoch: " + str(epoch))
         # --- training ---
         model.train()
         running_loss = 0.0
+        n_samples = 0
         for X, y in trainloader:
-            X, y = X.to(device), y.to(device)
+            X, y = X.float().to(device), y.long().to(device)
             optimizer.zero_grad()
             logits = model(X)
+            logits = logits.float()
             loss   = criterion(logits, y)
             loss.backward()
             optimizer.step()
@@ -88,8 +92,9 @@ def train_tdost(model, trainloader, valloader, optimizer, scheduler, device, arg
         correct, total = 0, 0
         with torch.no_grad():
             for X, y in valloader:
-                X, y = X.to(device), y.to(device)
+                X, y = X.float().to(device), y.long().to(device)
                 logits = model(X)
+                logits = logits.float()
                 preds = logits.argmax(dim=1)
                 correct += (preds == y).sum().item()
                 total += y.size(0)
@@ -112,10 +117,11 @@ def train_tdost(model, trainloader, valloader, optimizer, scheduler, device, arg
     return model
 
 
-def get_tdost_predicted_probabilities(model, device, testloader, args):
+def get_tdost_predicted_probabilities(device, testloader, args):
     """
     Loads best weights, runs test set, returns (probs, labels) numpy arrays.
     """
+    model, _, _, _ = setup_tdost(args)
     # load best if not already in memory
     ckpt = os.path.join(args.model_save_path, "tdost_model.pth")
     model.load_state_dict(torch.load(ckpt, map_location=device))
@@ -125,7 +131,7 @@ def get_tdost_predicted_probabilities(model, device, testloader, args):
     all_labels = []
     with torch.no_grad():
         for X, y in testloader:
-            X, y = X.to(device), y.to(device)
+            X, y = X.float().to(device), y.long().to(device)
             logits = model(X)
             probs = F.softmax(logits, dim=1)
             all_probs.append(probs.cpu())

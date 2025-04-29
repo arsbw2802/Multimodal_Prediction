@@ -20,12 +20,12 @@ def opp_sliding_window(data_x, data_y, ws, ss):
     data_x = sliding_window(data_x, (ws, data_x.shape[1], data_x.shape[2]), (ss, 1, 1))
     data_y = np.reshape(data_y, (len(data_y),))
     data_y = np.asarray([[i[-1]] for i in sliding_window(data_y, ws, ss)])
-    return data_x.astype(np.float16), data_y.reshape(len(data_y)).astype(np.uint8)
+    return data_x.astype(np.float32), data_y.reshape(len(data_y)).astype(np.uint8)
 
   
 # Defining the data loader for the implementation
 class HARDataset(Dataset):
-    def __init__(self, directory, sentence_encoder_name, phase, window_size=50, step_size=25):
+    def __init__(self, directory, sentence_encoder_name, phase, window_size=15, step_size=25):
         raw_data = open_raw_data_file(os.path.join(directory, f"MARBLE_{phase}_embeddings_v1_{sentence_encoder_name}.npy")).astype(np.float16)
         raw_labels = open_raw_data_file(os.path.join(directory, f"MARBLE_{phase}_labels.npy")).astype(np.uint8)
 
